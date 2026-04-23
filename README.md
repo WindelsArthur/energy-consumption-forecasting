@@ -17,17 +17,14 @@ by **Axpo** in partnership with **Databricks**, and our solution was ranked
 
 ---
 
-## Team Belmonte Hunters
+## Team
 
 | Member | LinkedIn |
 |--------|----------|
-| **Arthur Vianna**    | <https://www.linkedin.com/in/arthur-vianna/> |
-| **Yanis Fallet**     | <https://www.linkedin.com/in/yanis-fallet/> |
-| **Nicolaj Thomsen**  | <https://www.linkedin.com/in/nicolaj-thomsen/> |
-| **Arthur Windels**   | <https://www.linkedin.com/in/arthur-windels/> |
-
-*(LinkedIn handles are placeholders — each team member can replace with their
-own profile URL.)*
+| **Arthur Vianna**   | <https://www.linkedin.com/in/arthur-vianna-3b83942b0/> |
+| **Yanis Fallet**    | <https://www.linkedin.com/in/yanisfallet/> |
+| **Nicolaj Thomsen** | <https://www.linkedin.com/in/tj213/> |
+| **Arthur Windels**  | <https://www.linkedin.com/in/arthurwindels/> |
 
 ---
 
@@ -77,40 +74,143 @@ All tables were provided in Databricks Unity Catalog (`datathon.*`):
 
 ---
 
-## Our Solution in One Paragraph
+## Our solution
 
-Modelling raw `active_kw` directly is hard: the portfolio roughly **doubled**
-over 2025 (client count grew from ≈4.4k to ≈8.4k), consumption distributions
-differ by more than an order of magnitude between regions, and a handful of
-large industrial clients dominate a few communities. Rather than fighting all
-of this with a monolithic regressor, we **re-target the problem** to a
-quantity that is almost stationary:
+### Why modelling `active_kw` directly is hard
+
+Three pathologies of the raw target made a monolithic regressor on
+`active_kw` a bad idea from the start:
+
+- **Scale heterogeneity.** Daily totals per community span more than an
+  order of magnitude: large industrial regions dwarf the small rural ones,
+  so any mean-squared loss on the raw level is dominated by a handful of
+  regions and fits the rest poorly.
+- **Portfolio growth.** Client count grew from ≈4.4k to ≈8.4k over 2025 —
+  the portfolio roughly doubled. A model trained on total consumption
+  cannot tell apart a change in *behaviour* from a change in *portfolio
+  size*, and will happily extrapolate the growth trend into the test
+  horizon.
+- **A few dominant clients.** Within several communities, a single large
+  industrial consumer accounts for most of the regional load. Their
+  idiosyncratic schedules corrupt the aggregate signal and make per-client
+  averages unstable.
+
+### Re-targeting the problem: the α share
+
+Instead of forecasting `active_kw` we forecast a **per-community, per-client
+share of Spain's day-ahead demand forecast**:
 
 $$
-\alpha(c, t) \;=\; \frac{\sum_{j\,\in\,c}\, y_j(t)}{n(c,t)\;\cdot\;\hat D_{\text{Spain}}(t)}
+\alpha(c, t) = \frac{\sum_{j\in c} y_j(t)}{n(c,t) \cdot \hat{D}_\text{Spain}(t)}
 $$
 
-the per-client share of Spain's day-ahead demand forecast, per community.
-The denominator absorbs seasonality, calendar effects, and the dominant
-weather signal *for free* (REE's forecast already does that); the division by
-`n(c,t)` neutralises portfolio growth.
+where $y_j(t)$ is client $j$'s `active_kw`, $n(c,t)$ is the number of
+active clients in community $c$ at $t$, and $\hat{D}_\text{Spain}(t)$ is
+the REE day-ahead demand forecast for Spain (published long before 12:00
+on D-1, so leakage-free).
 
-Our **baseline** — the model that actually scored on the leaderboard — is a
-structural estimator with **zero fitted parameters**:
+This re-parameterisation is powerful because the denominator does most of
+the heavy lifting *for free*:
+
+- $\hat{D}_\text{Spain}$ already encodes daily and weekly seasonality,
+  national calendar effects, and the dominant weather response (temperature
+  swings, heating/cooling load).
+- Dividing by $n(c,t)$ neutralises portfolio growth — α is per-client, not
+  per-portfolio.
+
+Empirically, α is near-stationary for the vast majority of communities
+(see [`assets/alpha_per_community.png`](assets/alpha_per_community.png)),
+which turns a noisy non-stationary regression into a much tamer problem.
+
+### Baseline: α-lag-7 (zero fitted parameters)
+
+The simplest honest predictor of α at time $t$ is its value one week
+earlier — human activity is strongly weekly-periodic, so Monday 09:00
+behaves like last Monday 09:00:
 
 $$
-\hat y_{\text{portfolio}}(t)
-\;=\;
-\sum_{c}\; \alpha(c,\,D-7)\;\cdot\;n(c,\,D-2)\;\cdot\;\hat D_{\text{Spain}}(t)
+\hat{\alpha}(c, t) = \alpha(c,\, D-7)
 $$
 
-which simply extrapolates last week's share forward. We tried extensively to
-beat it with learned residual models (LightGBM per community, with weather
-forecasts and calendar encodings; big-client extraction; clustering; stacking)
-but **no variant produced a gain large enough to justify the added
-complexity**, so we submitted the baseline.
+Scaling back by today's known quantities gives our structural portfolio
+forecast:
 
-> See `slides/presentation.pdf` for the full narrative.
+$$
+\hat{y}_\text{portfolio}(t) = \sum_{c} \alpha(c,\, D-7) \cdot n(c,\, D-2) \cdot \hat{D}_\text{Spain}(t)
+$$
+
+Every term is strictly available before 12:00 on day D-1:
+
+- $\alpha(c, D-7)$ comes from the metering data of seven days ago.
+- $n(c, D-2)$ is the most recent reliable count of active clients.
+- $\hat{D}_\text{Spain}(t)$ is the published REE forecast.
+
+No parameters are fitted, no hyperparameters are tuned. On a held-out
+slice of the training period this baseline achieves **MAE ≈ 15,305 kW** —
+already a strong starting point.
+
+### Residual LightGBM per community (leakage-free)
+
+To close the remaining gap we fit a **dedicated `LightGBM` regressor per
+community** on the baseline's residual:
+
+$$
+\varepsilon(c, t) = \sum_{j\in c} y_j(t) - \alpha(c,\, D-7) \cdot n(c,\, D-2) \cdot \hat{D}_\text{Spain}(t)
+$$
+
+The residual target is small, closer to zero-mean, and concentrates the
+community-specific quirks the structural model ignores (local holidays,
+weather anomalies, industrial shifts). Training one model per community
+lets each one specialise to its climate and industrial mix rather than
+averaging across regions.
+
+Features fed to each LightGBM are strictly leakage-free — nothing from
+time $t$ or later ever enters the training matrix:
+
+- **Weather forecast snapshot taken at D-2** (Open-Meteo): temperature,
+  heating/cooling degree-days, shortwave radiation, humidity, wind speed.
+  We never use the observed weather at $t$.
+- **Calendar encodings**: 15-minute-of-day, day-of-week, day-of-month,
+  day-of-year, plus their sin/cos cyclical variants; Spanish national and
+  regional holidays, and *puente* bridge days.
+- **Lag and rolling statistics of α** (lag-2/7/14/21/28 days, rolling
+  mean/std over 7/28 days, same-day-of-week rolling mean).
+
+### Handling big clients
+
+Averaging over $n(c, t)$ implicitly assumes clients inside a community
+are roughly comparable in scale. That assumption breaks for the handful
+of industrial clients that consume orders of magnitude more than the
+rest: their entry or exit shifts the community α dramatically (visible
+as the drift on `CL` in [`assets/alpha_per_community.png`](assets/alpha_per_community.png)).
+
+To fix this we identified the **top consumers on the training window
+only** (no leakage into validation) and promoted each of them to their
+own synthetic "community" with a dedicated LightGBM sub-model. The
+remaining community keeps a clean, stable α.
+
+### Final forecast
+
+$$
+\hat{y}_\text{portfolio}(t) = \sum_{c \in \text{communities}} \big[\text{baseline}(c,t) + \hat{\varepsilon}(c,t)\big] + \sum_{k \in \text{big clients}} \big[\text{baseline}(k,t) + \hat{\varepsilon}_k(t)\big]
+$$
+
+On a held-out slice of the training period this full pipeline reaches
+**MAE ≈ 12,000 kW** — a material improvement over the already-strong
+structural baseline.
+
+### Cross-validation
+
+All training-derived artefacts (big-client list, LightGBM fits, α lags)
+are recomputed inside every fold of a forward-only
+`sklearn.model_selection.TimeSeriesSplit`, with a mandatory gap of two
+days between the last training timestamp and the first validation
+timestamp so that no D-2 / D-7 feature window of the validation fold
+ever touches the training window. The helper `time_series_cv(...)` in
+`src/submission.py` runs this loop end-to-end.
+
+> For the full narrative (plots, ablations, failed experiments) see the
+> [presentation PDF](presentation.pdf).
 
 ---
 
@@ -139,95 +239,11 @@ narrow band → α is much easier to predict than `active_kw`.
 
 ---
 
-## Repository layout
-
-```
-energy_consumption_forecasting/
-├── README.md                           ← you are here
-├── src/
-│   ├── preprocessing.py                ← Spark pipeline: panel + alpha + lags + weather/holiday joins
-│   └── submission.py                   ← clean reference implementation (see below)
-├── notebooks/                          ← original Databricks notebooks, renamed for clarity
-│   ├── data_exploration_1.ipynb
-│   ├── data_exploration_2.ipynb
-│   ├── exploration_preprocessing_2.ipynb
-│   ├── model_exploration_1.ipynb
-│   ├── model_exploration_2.ipynb
-│   ├── model_exploration_3.ipynb
-│   └── model_exploration_4.ipynb
-└── assets/                             ← plots used in the README
-```
-
-The notebooks are shipped **as-is** from the competition workspace. Because
-the Databricks data is not available outside the competition, the notebooks
-are read-only artefacts that document what we explored, not runnable code.
-
-### `src/submission.py`
-
-A clean, self-contained rewrite of the submitted `EnergyConsumptionModel`
-class that:
-
-1. **Identifies big clients** from the training window only (no leakage into
-   validation or test).
-2. **Computes α** per `(community, 15-min)` against the Spain demand forecast.
-3. **Produces the baseline** `ŷ(t) = α(c, D-7) · n(c, D-2) · D̂_Spain(t)`.
-4. **Fits one LightGBM per entity** on the residual `ε = y − ŷ_baseline`,
-   using only **D-2 weather forecasts** and calendar encodings.
-5. **Runs a leakage-free `TimeSeriesSplit` cross-validation** (`time_series_cv`)
-   with a configurable gap between train and validation, large enough to
-   avoid the D-2 / D-7 feature window overlapping the held-out fold.
-
-The Databricks-facing `predict(df, predict_start, predict_end)` contract and
-the final scoring cell are preserved verbatim, so the module remains
-drop-in compatible with the competition scoring job.
-
-### `src/preprocessing.py`
-
-The original PySpark feature-engineering pipeline used in the notebooks:
-builds the `(community × 15-min)` panel, joins the demand/weather/holiday
-tables, computes α and its lags, and produces the D-1 11:45 snapshots used
-by the learned models. Depends on PySpark and therefore only runs inside a
-Databricks workspace.
-
----
-
-## Reproducing the pipeline (outside Databricks)
-
-Because the source data is under NDA, there is no way to actually reproduce
-the numbers outside the competition workspace. The code in `src/` is
-structured so that, *given* a pandas dataframe of client consumption and
-matching demand / weather forecasts, the pipeline runs end-to-end:
-
-```python
-from src.submission import EnergyConsumptionModel, time_series_cv
-
-# consumption_df      : columns [client_id, community_code, datetime_local, active_kw]
-# demand_forecast_df  : columns [datetime_local, D_mw]
-# weather_forecast_df : columns [community_code, datetime_local, <weather columns>]
-
-# Honest walk-forward MAE per fold
-cv = time_series_cv(
-    consumption_df, weather_forecast_df, demand_forecast_df,
-    n_splits=5, gap_days=2,
-)
-print(cv)
-
-# Fit on everything for the actual submission
-model = EnergyConsumptionModel().fit(
-    consumption_df, weather_forecast_df, demand_forecast_df,
-)
-```
-
-Dependencies: `pandas`, `numpy`, `scikit-learn`, `lightgbm` (and `pyspark`
-only for the Databricks entry point).
-
----
-
 ## Acknowledgements
 
 - **Axpo** for designing the challenge and sharing the portfolio data.
 - **Databricks** for providing the workspace and compute.
 - **Analytics Club at ETH** / **ETH Datathon organisers** for running the
   biggest data-science event in Switzerland.
-- **REE** for the open Spain demand forecast, and **Open-Meteo** for the
-  weather forecast API that powered our D-2 weather features.
+- **Open-Meteo** for the weather forecast API that powered our D-2
+  weather features.
