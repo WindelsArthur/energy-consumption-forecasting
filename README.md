@@ -1,5 +1,5 @@
 # Iberia Retail Energy Consumption Forecasting
-### ETH Datathon 2025 — Axpo × Databricks challenge · 🥈 2nd place
+### ETH Datathon 2025 — Axpo × Databricks challenge · 2nd place
 
 This repository documents the day-ahead electricity consumption forecasting
 pipeline we built at the **ETH Datathon 2025**, the largest data-science /
@@ -17,21 +17,21 @@ by **Axpo** in partnership with **Databricks**, and our solution was ranked
 
 ---
 
-## 👥 Team Belmonte Hunters
+## Team Belmonte Hunters
 
-|   | Member | LinkedIn |
-|---|--------|----------|
-| 👤 | **Arthur Vianna**    | <https://www.linkedin.com/in/arthur-vianna/> |
-| 👤 | **Yanis Fallet**     | <https://www.linkedin.com/in/yanis-fallet/> |
-| 👤 | **Nicolaj Thomsen**  | <https://www.linkedin.com/in/nicolaj-thomsen/> |
-| 👤 | **Arthur Windels**   | <https://www.linkedin.com/in/arthur-windels/> |
+| Member | LinkedIn |
+|--------|----------|
+| **Arthur Vianna**    | <https://www.linkedin.com/in/arthur-vianna/> |
+| **Yanis Fallet**     | <https://www.linkedin.com/in/yanis-fallet/> |
+| **Nicolaj Thomsen**  | <https://www.linkedin.com/in/nicolaj-thomsen/> |
+| **Arthur Windels**   | <https://www.linkedin.com/in/arthur-windels/> |
 
 *(LinkedIn handles are placeholders — each team member can replace with their
 own profile URL.)*
 
 ---
 
-## 🏁 The Challenge
+## The Challenge
 
 > "You take on the role of a retail energy supplier operating in the Iberian
 > market. Your objective is to develop a forecasting model that minimises the
@@ -77,7 +77,7 @@ All tables were provided in Databricks Unity Catalog (`datathon.*`):
 
 ---
 
-## 💡 Our Solution in One Paragraph
+## Our Solution in One Paragraph
 
 Modelling raw `active_kw` directly is hard: the portfolio roughly **doubled**
 over 2025 (client count grew from ≈4.4k to ≈8.4k), consumption distributions
@@ -114,7 +114,7 @@ complexity**, so we submitted the baseline.
 
 ---
 
-## 📊 Key plots
+## Key plots
 
 ### Raw consumption is heterogeneous across the 17 communities
 ![Consumption histograms](assets/consumption_histograms.png)
@@ -139,7 +139,7 @@ narrow band → α is much easier to predict than `active_kw`.
 
 ---
 
-## 🗂️ Repository layout
+## Repository layout
 
 ```
 energy_consumption_forecasting/
@@ -191,7 +191,7 @@ Databricks workspace.
 
 ---
 
-## 🧪 Reproducing the pipeline (outside Databricks)
+## Reproducing the pipeline (outside Databricks)
 
 Because the source data is under NDA, there is no way to actually reproduce
 the numbers outside the competition workspace. The code in `src/` is
@@ -223,7 +223,7 @@ only for the Databricks entry point).
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - **Axpo** for designing the challenge and sharing the portfolio data.
 - **Databricks** for providing the workspace and compute.
