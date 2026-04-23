@@ -6,7 +6,7 @@ pipeline we built at the **ETH Datathon 2025**, the largest data-science /
 machine-learning competition in Switzerland (hosted at ETH Zürich). The
 challenge — titled *"Iberia Retail Consumption Forecasting"* — was designed
 by **Axpo** in partnership with **Databricks**, and our solution was ranked
-**2nd overall** among the participating teams.
+**2nd overall**.
 
 > **No data in this repository.** The competition dataset (client-level
 > metered consumption, Spain demand / PV / wind forecasts, weather, etc.) is
@@ -122,7 +122,7 @@ Empirically, α is near-stationary for the vast majority of communities
 (see [`assets/alpha_per_community.png`](assets/alpha_per_community.png)),
 which turns a noisy non-stationary regression into a much tamer problem.
 
-### Baseline: α-lag-7 (zero fitted parameters)
+### Baseline: α-lag-7
 
 The simplest honest predictor of α at time $t$ is its value one week
 earlier — human activity is strongly weekly-periodic, so Monday 09:00
@@ -146,10 +146,10 @@ Every term is strictly available before 12:00 on day D-1:
 - $\hat{D}_\text{Spain}(t)$ is the published REE forecast.
 
 No parameters are fitted, no hyperparameters are tuned. On a held-out
-slice of the training period this baseline achieves **MAE ≈ 15,305 kW** —
+slice of the training period this baseline achieves **MAE ≈ 15,000 kW** —
 already a strong starting point.
 
-### Residual LightGBM per community (leakage-free)
+### Residual LightGBM per community 
 
 To close the remaining gap we fit a **dedicated `LightGBM` regressor per
 community** on the baseline's residual:
@@ -202,15 +202,10 @@ structural baseline.
 ### Cross-validation
 
 All training-derived artefacts (big-client list, LightGBM fits, α lags)
-are recomputed inside every fold of a forward-only
-`sklearn.model_selection.TimeSeriesSplit`, with a mandatory gap of two
-days between the last training timestamp and the first validation
+are recomputed inside every fold of a forward-only split, with a mandatory gap of two
+weeks between the last training timestamp and the first validation
 timestamp so that no D-2 / D-7 feature window of the validation fold
-ever touches the training window. The helper `time_series_cv(...)` in
-`src/submission.py` runs this loop end-to-end.
-
-> For the full narrative (plots, ablations, failed experiments) see the
-> [presentation PDF](presentation.pdf).
+ever touches the training window.
 
 ---
 
@@ -245,5 +240,3 @@ narrow band → α is much easier to predict than `active_kw`.
 - **Databricks** for providing the workspace and compute.
 - **Analytics Club at ETH** / **ETH Datathon organisers** for running the
   biggest data-science event in Switzerland.
-- **Open-Meteo** for the weather forecast API that powered our D-2
-  weather features.
