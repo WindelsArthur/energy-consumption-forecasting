@@ -8,7 +8,7 @@ challenge — titled *"Iberia Retail Consumption Forecasting"* — was designed
 by **Axpo** in partnership with **Databricks**, and our solution was ranked
 **2nd overall** among the participating teams.
 
-> ⚠️ **No data in this repository.** The competition dataset (client-level
+> **No data in this repository.** The competition dataset (client-level
 > metered consumption, Spain demand / PV / wind forecasts, weather, etc.) is
 > covered by an Axpo non-disclosure agreement and lived exclusively inside a
 > Databricks Unity Catalog. What you will find here is the **idea, the
